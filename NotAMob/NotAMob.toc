@@ -1,0 +1,11 @@
+## Interface: 16001
+## Interface-Camelot: 16001
+## Title: NotAMob
+## Notes: Tell enemy players from mobs: a one-click NPC-names toggle (/nam), plus bigger enemy-player names on Blizzard nameplates.
+## IconTexture: Interface\AddOns\NotAMob\icon
+## Author: Sheng Long
+## X-License: All Rights Reserved
+## Version: 1.0.0
+## SavedVariables: NotAMobDB
+
+NotAMob.lua

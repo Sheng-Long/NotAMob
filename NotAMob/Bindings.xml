@@ -1,0 +1,8 @@
+<Bindings>
+	<Binding name="NOTAMOB_TOGGLE_NPC_NAMES" header="NOTAMOB" category="ADDONS">
+		NotAMob_ToggleNpcNames()
+	</Binding>
+	<Binding name="NOTAMOB_NINE_SNAP" hidden="true">
+		NotAMob_NineSnap()
+	</Binding>
+</Bindings>
