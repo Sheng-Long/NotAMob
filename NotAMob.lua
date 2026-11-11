@@ -154,7 +154,7 @@ local MODIFIER_KEYS = {
 local function OpenKeyCapture(onDone, action)
     action = action or BINDING_ACTION
     if not capture then
-        capture = CreateFrame("Frame", "NotAMobKeyCapture", UIParent, "BackdropTemplate")
+        capture = CreateFrame("Frame", nil, UIParent, "BackdropTemplate")
         capture:SetSize(330, 130)
         capture:SetPoint("CENTER")
         capture:SetFrameStrata("FULLSCREEN_DIALOG")
@@ -185,7 +185,7 @@ local function OpenKeyCapture(onDone, action)
         local cancel = CreateFrame("Button", nil, capture, "UIPanelButtonTemplate")
         cancel:SetSize(110, 22)
         cancel:SetPoint("BOTTOMRIGHT", -28, 18)
-        cancel:SetText(CANCEL or "Cancel")
+        cancel:SetText("Cancel")
         cancel:SetScript("OnClick", function() capture:Hide() end)
 
         capture:SetScript("OnKeyDown", function(self, key)
@@ -221,14 +221,12 @@ end
 local HUNTERS_MARK_SPELL = 1130
 local HUNTERS_MARK_FALLBACK = "Interface\\Icons\\Ability_Hunter_SniperShot"
 
+local function SpellIcon(spellID)
+    return C_Spell.GetSpellTexture(spellID)
+end
+
 local function HuntersMarkIcon()
-    local tex
-    if C_Spell and C_Spell.GetSpellTexture then
-        tex = C_Spell.GetSpellTexture(HUNTERS_MARK_SPELL)
-    elseif GetSpellTexture then
-        tex = GetSpellTexture(HUNTERS_MARK_SPELL)
-    end
-    return tex or HUNTERS_MARK_FALLBACK
+    return SpellIcon(HUNTERS_MARK_SPELL) or HUNTERS_MARK_FALLBACK
 end
 
 local ICON_CHOICES = {
@@ -240,11 +238,6 @@ local ICON_CHOICES = {
     { key = "SKULL",       label = "Skull",           path = "Interface\\Icons\\INV_Misc_Bone_HumanSkull_01" },
     { key = "SWORDS",      label = "Crossed Swords",  path = "Interface\\Icons\\Ability_DualWield" },
 }
-
-local function SpellIcon(spellID)
-    if C_Spell and C_Spell.GetSpellTexture then return C_Spell.GetSpellTexture(spellID) end
-    if GetSpellTexture then return GetSpellTexture(spellID) end
-end
 
 local function ResolveCustomIcon(value)
     if value == nil or value == "" then return nil end
@@ -297,7 +290,7 @@ UpdateButton = function()
 end
 
 local function CreateButton()
-    button = CreateFrame("Button", "NotAMobToggleButton", UIParent)
+    button = CreateFrame("Button", nil, UIParent)
     button:SetSize(36, 36)
     button:SetFrameStrata("MEDIUM")
     button:SetClampedToScreen(true)
@@ -399,7 +392,7 @@ end
 local function BlizzardNameFontObject()
     local o = NamePlateSetupOptions
     local styles = NamePlateConstants and NamePlateConstants.NAME_ANCHOR_STYLES
-    local outlined = _G.SystemFont_NamePlate_Outlined
+    local outlined = rawget(_G, "SystemFont_NamePlate_Outlined")
     if o and styles and outlined then
         local s = o.unitNameAnchorStyle
         if s == styles.InsideHealthBar or s == styles.CenteredAboveHealthBar
@@ -502,7 +495,7 @@ local function Evaluate(unitFrame)
 end
 
 local function EvaluateAll()
-    for _, plate in ipairs(C_NamePlate.GetNamePlates(issecure()) or {}) do
+    for _, plate in ipairs(C_NamePlate.GetNamePlates() or {}) do
         if plate.UnitFrame then Evaluate(plate.UnitFrame) end
     end
 end
@@ -650,7 +643,7 @@ local function Debug()
         return
     end
     local uf = plate.UnitFrame
-    local file, size, flags = uf.name:GetFont()
+    local file, size, flags = rawget(uf, "name"):GetFont()
     local obj = BlizzardNameFontObject()
     local bfile, _, bflags
     if obj then bfile, _, bflags = obj:GetFont() end
@@ -714,7 +707,7 @@ local function NineCamSnap()
 end
 
 local function CreateNineCam()
-    nineCam = CreateFrame("Button", "NotAMobNineCam", UIParent)
+    nineCam = CreateFrame("Button", nil, UIParent)
     nineCam:SetSize(36, 36)
     nineCam:SetClampedToScreen(true)
     nineCam:SetMovable(true)

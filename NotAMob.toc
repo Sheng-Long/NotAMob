@@ -5,7 +5,9 @@
 ## IconTexture: Interface\AddOns\NotAMob\icon
 ## Author: Sheng Long
 ## X-License: All Rights Reserved
-## Version: 1.0.0
+## Version: @project-version@
 ## SavedVariables: NotAMobDB
+## X-Curse-Project-ID: 1795374
+## X-Wago-ID: qKQgX7Nx
 
 NotAMob.lua
