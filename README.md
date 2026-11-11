@@ -12,6 +12,10 @@ It does two things:
 2. Makes enemy player names on nameplates bigger and outlined, so they stand out from mobs
    once they're in nameplate range.  Mobs and everything else stay Blizzard default.
 
+![Normal: mobs and players both show red names.  NotAMob on: every red name left is a player.](screenshots/npc-names-comparison.jpg)
+
+*Annotated from real in-game screenshots.*
+
 | Without NotAMob | With NotAMob (test mode on a mob) |
 |---|---|
 | ![Blizzard's normal name](screenshots/nameplate-before-test-mode-off.png) | ![Bigger enemy-player name](screenshots/nameplate-after-test-mode-on.png) |
