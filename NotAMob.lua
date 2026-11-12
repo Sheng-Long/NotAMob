@@ -549,11 +549,17 @@ local function SetCVarSafe(name, value)
     return true
 end
 
+local function Yards(v)
+    local n = tonumber(v)
+    if not n then return tostring(v) end
+    return tostring(math.floor(n + 0.5))
+end
+
 local function RangeReport()
     for _, c in ipairs(RANGE_CVARS) do
         local v = GetCVar(c)
         if v ~= nil then
-            Print(("%s = %s (default %s)"):format(c, tostring(v), tostring(GetCVarDefault(c))))
+            Print(("%s = %s (default %s)"):format(c, Yards(v), Yards(GetCVarDefault(c))))
         end
     end
 end
@@ -586,7 +592,7 @@ local function CmdRange(arg)
                 target = value
             end
             SetCVarSafe(c, target)
-            Print(("%s: %s"):format(c, tostring(GetCVar(c))))
+            Print(("%s: %s"):format(c, Yards(GetCVar(c))))
         end
     end
     if reset then db.prevRange = nil end
@@ -763,8 +769,11 @@ local function CreateNineCam()
     nineCam:SetShown(db.nineCam.shown)
 end
 
+local RefreshOptions
+
 local function ToggleNineCam()
     db.nineUnlocked = true
+    if RefreshOptions then RefreshOptions() end
     db.nineCam.shown = not db.nineCam.shown
     if not nineCam then CreateNineCam() end
     nineCam:SetShown(db.nineCam.shown)
@@ -778,12 +787,12 @@ function NotAMob_NineSnap()
 end
 
 local function RangeText()
-    local npc = GetCVar("nameplateMaxDistance")
+    local npc = Yards(GetCVar("nameplateMaxDistance"))
     local plr = GetCVar("nameplatePlayerMaxDistance")
-    if plr ~= nil and plr ~= npc then
-        return ("now %s yd / players %s yd"):format(tostring(npc), tostring(plr))
+    if plr ~= nil and Yards(plr) ~= npc then
+        return ("%s / %s yd"):format(npc, Yards(plr))
     end
-    return ("now %s yd"):format(tostring(npc))
+    return ("%s yd"):format(npc)
 end
 
 local optionsCategory
@@ -796,52 +805,168 @@ local FONT_LABELS = {
 }
 local OUTLINE_LABELS = { none = "None", outline = "Thin", thick = "Thick" }
 
-local function BuildOptions()
-    if optionsCategory or not (Settings and Settings.RegisterVerticalLayoutCategory) then return end
+local ROW_HEIGHT = 30
 
-    local category, layout = Settings.RegisterVerticalLayoutCategory("NotAMob")
-    optionsCategory = category
-    if not layout and SettingsPanel and SettingsPanel.GetLayout then
-        layout = SettingsPanel:GetLayout(category)
+local function ShowTip(owner, title, text)
+    GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+    GameTooltip:SetText(title, 1, 1, 1)
+    if text then GameTooltip:AddLine(text, nil, nil, nil, true) end
+    GameTooltip:Show()
+end
+
+local function BuildOptions()
+    if optionsCategory or not (Settings and Settings.RegisterCanvasLayoutCategory) then return end
+
+    local panel = CreateFrame("Frame")
+    panel:Hide()
+
+    local title = panel:CreateFontString(nil, "ARTWORK", "GameFontHighlightHuge")
+    title:SetPoint("TOPLEFT", 7, -22)
+    title:SetText("NotAMob")
+
+    local scroll = CreateFrame("ScrollFrame", nil, panel, "UIPanelScrollFrameTemplate")
+    scroll:SetPoint("TOPLEFT", 0, -50)
+    scroll:SetPoint("BOTTOMRIGHT", -28, 8)
+    local content = CreateFrame("Frame", nil, scroll)
+    content:SetSize(600, 1)
+    scroll:SetScrollChild(content)
+    scroll:SetScript("OnSizeChanged", function(_, width) content:SetWidth(width) end)
+
+    local rows, refreshers = {}, {}
+
+    local function NewRow(height)
+        local row = CreateFrame("Frame", nil, content)
+        row:SetHeight(height or ROW_HEIGHT)
+        rows[#rows + 1] = row
+        return row
+    end
+
+    local function AttachTip(frame, text, tip)
+        frame:HookScript("OnEnter", function(self) ShowTip(self, text, tip) end)
+        frame:HookScript("OnLeave", GameTooltip_Hide)
+    end
+
+    local function Label(row, text, tip)
+        local fs = row:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+        fs:SetPoint("LEFT", 37, 0)
+        fs:SetPoint("RIGHT", row, "CENTER", -85, 0)
+        fs:SetJustifyH("LEFT")
+        fs:SetText(text)
+        row:EnableMouse(true)
+        AttachTip(row, text, tip)
     end
 
     local function Header(text)
-        if layout and CreateSettingsListSectionHeaderInitializer then
-            local init = CreateSettingsListSectionHeaderInitializer(text)
-            layout:AddInitializer(init)
-            return init
-        end
+        local row = NewRow(45)
+        local fs = row:CreateFontString(nil, "ARTWORK", "GameFontHighlightLarge")
+        fs:SetPoint("BOTTOMLEFT", 7, 6)
+        fs:SetText(text)
+        return row
     end
 
-    local function AddButton(name, textFunc, onClick, tooltip, refreshEvent)
-        if layout and CreateSettingsButtonInitializer then
-            local refresh = refreshEvent and function(btn) btn:SetText(textFunc()) end or nil
-            local init = CreateSettingsButtonInitializer(name, textFunc, onClick, tooltip, true,
-                nil, refresh, refreshEvent)
-            layout:AddInitializer(init)
-            return init
+    local function Button(text, tip, textFunc, onClick)
+        local row = NewRow()
+        Label(row, text, tip)
+        local b = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+        b:SetSize(200, 26)
+        b:SetPoint("LEFT", row, "CENTER", -80, 0)
+        local function SetLabel(self, label)
+            self:SetText(label)
+            self:SetWidth(math.max(200, self:GetTextWidth() + 30))
         end
+        b:SetScript("OnClick", function(self)
+            onClick(self)
+            SetLabel(self, textFunc())
+        end)
+        AttachTip(b, text, tip)
+        refreshers[#refreshers + 1] = function() SetLabel(b, textFunc()) end
+        return row
+    end
+
+    local function Checkbox(text, tip, get, set)
+        local row = NewRow()
+        Label(row, text, tip)
+        local cb = CreateFrame("CheckButton", nil, row, "UICheckButtonTemplate")
+        cb:SetPoint("LEFT", row, "CENTER", -80, 0)
+        cb:SetScript("OnClick", function(self)
+            local on = self:GetChecked() and true or false
+            if SOUNDKIT then
+                PlaySound(on and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF)
+            end
+            set(on)
+        end)
+        AttachTip(cb, text, tip)
+        refreshers[#refreshers + 1] = function() cb:SetChecked(get() and true or false) end
+        return row
+    end
+
+    local function Dropdown(text, tip, choices, get, set)
+        local row = NewRow()
+        Label(row, text, tip)
+        local dd = CreateFrame("DropdownButton", nil, row, "WowStyle1DropdownTemplate")
+        dd:SetWidth(220)
+        dd:SetPoint("LEFT", row, "CENTER", -80, 0)
+        dd:SetupMenu(function(_, root)
+            for _, c in ipairs(choices()) do
+                local radio = root:CreateRadio(c.label,
+                    function() return get() == c.value end,
+                    function() set(c.value) end)
+                if c.tip and radio.SetTooltip then
+                    radio:SetTooltip(function(tooltip)
+                        GameTooltip_SetTitle(tooltip, c.label)
+                        GameTooltip_AddNormalLine(tooltip, c.tip)
+                    end)
+                end
+            end
+        end)
+        AttachTip(dd, text, tip)
+        refreshers[#refreshers + 1] = function() dd:GenerateMenu() end
+        return row
+    end
+
+    local function Slider(text, tip, minValue, maxValue, step, fmt, get, set)
+        local row = NewRow(40)
+        Label(row, text, tip)
+        local s = CreateFrame("Slider", nil, row, "OptionsSliderTemplate")
+        s:SetWidth(180)
+        s:SetPoint("LEFT", row, "CENTER", -76, 0)
+        s:SetOrientation("HORIZONTAL")
+        s:SetMinMaxValues(minValue, maxValue)
+        s:SetValueStep(step)
+        s:SetObeyStepOnDrag(true)
+        if s.Text then s.Text:SetText("") end
+        if s.Low then s.Low:SetText(fmt(minValue)) end
+        if s.High then s.High:SetText(fmt(maxValue)) end
+        local valueText = row:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
+        valueText:SetPoint("LEFT", s, "RIGHT", 12, 0)
+        local updating = false
+        s:SetScript("OnValueChanged", function(_, value)
+            valueText:SetText(fmt(value))
+            if not updating then set(value) end
+        end)
+        AttachTip(s, text, tip)
+        refreshers[#refreshers + 1] = function()
+            updating = true
+            s:SetValue(get())
+            valueText:SetText(fmt(get()))
+            updating = false
+        end
+        return row
     end
 
     Header("NPC names (works at any distance)")
 
-    AddButton("NPC names",
+    Button("NPC names",
+        "Hide every NPC floating name, so any name you can still see is a player. Click again to get your own NPC Names setting back.",
         function() return NpcNamesHidden() and "Show NPC names" or "Hide NPC names" end,
-        function(btn)
-            ToggleNpcNames()
-            btn:SetText(NpcNamesHidden() and "Show NPC names" or "Hide NPC names")
-        end,
-        "Hide every NPC floating name, so any name you can still see is a player. Click again to get your own NPC Names setting back.")
+        function() ToggleNpcNames() end)
 
-    AddButton("Toggle key",
-        ToggleKeyText,
-        function(btn)
-            OpenKeyCapture(function() btn:SetText(ToggleKeyText()) end)
-        end,
+    Button("Toggle key",
         "Click, then press the key you want for toggling NPC names. If the key is already used, you'll be warned first. It also appears under Options > Keybindings > AddOns > NotAMob.",
-        "UPDATE_BINDINGS")
+        ToggleKeyText,
+        function(btn) OpenKeyCapture(function() btn:SetText(ToggleKeyText()) end) end)
 
-    AddButton("Clear toggle key",
+    Button("Clear toggle key", "Remove the key binding for toggling NPC names.",
         function() return "Clear key" end,
         function()
             if not GetBindingKey(BINDING_ACTION) then
@@ -849,111 +974,79 @@ local function BuildOptions()
             elseif SetToggleKey(nil) then
                 Print("Toggle key cleared.")
             end
-        end,
-        "Remove the key binding for toggling NPC names.")
+        end)
 
-    do
-        local setting = Settings.RegisterProxySetting(category, "NOTAMOB_SHOW_BUTTON",
-            Settings.VarType.Boolean, "Show toggle button", true,
-            function() return db.button.shown end,
-            function(v) db.button.shown = v; UpdateButton() end)
-        Settings.CreateCheckbox(category, setting,
-            "The floating button that toggles NPC names. Shift-drag it to move it.")
-    end
+    Checkbox("Show toggle button", "The floating button that toggles NPC names. Shift-drag it to move it.",
+        function() return db.button.shown end,
+        function(v) db.button.shown = v; UpdateButton() end)
 
-    do
-        local function GetOptions()
-            local c = Settings.CreateControlTextContainer()
+    Dropdown("Button icon",
+        "The picture on the toggle button. For any other icon, type /nam icon followed by an icon name (like Ability_Stealth) or a spell ID.",
+        function()
+            local list = {}
             for _, choice in ipairs(ICON_CHOICES) do
-                local tex = IconForKey(choice.key)
-                c:Add(choice.key, "|T" .. tostring(tex) .. ":16:16|t " .. choice.label)
+                list[#list + 1] = { value = choice.key,
+                    label = "|T" .. tostring(IconForKey(choice.key)) .. ":16:16|t " .. choice.label }
             end
             if db.customIcon then
-                c:Add("CUSTOM", "|T" .. tostring(IconForKey("CUSTOM")) .. ":16:16|t Custom (" .. db.customIcon .. ")")
+                list[#list + 1] = { value = "CUSTOM",
+                    label = "|T" .. tostring(IconForKey("CUSTOM")) .. ":16:16|t Custom (" .. db.customIcon .. ")" }
             end
-            return c:GetData()
-        end
-        local setting = Settings.RegisterProxySetting(category, "NOTAMOB_ICON",
-            Settings.VarType.String, "Button icon", DEFAULTS.icon,
-            function() return db.icon end,
-            function(v) db.icon = v; ApplyIcon() end)
-        Settings.CreateDropdown(category, setting, GetOptions,
-            "The picture on the toggle button. For any other icon, type /nam icon followed by an icon name (like Ability_Stealth) or a spell ID.")
-    end
+            return list
+        end,
+        function() return db.icon end,
+        function(v) db.icon = v; ApplyIcon() end)
 
-    AddButton("Button position", function() return "Reset position" end,
+    Button("Button position", "Move the Hunter's Mark button back to the middle of the screen.",
+        function() return "Reset position" end,
         function()
             db.button.point, db.button.relPoint, db.button.x, db.button.y = "CENTER", "CENTER", 0, -180
             PlaceButton()
-        end,
-        "Move the Hunter's Mark button back to the middle of the screen.")
+        end)
 
     Header("Enemy player names on nameplates")
 
-    do
-        local setting = Settings.RegisterProxySetting(category, "NOTAMOB_ENABLED",
-            Settings.VarType.Boolean, "Bigger enemy-player names", true,
-            function() return db.enabled end,
-            function(v) db.enabled = v; Refresh() end)
-        Settings.CreateCheckbox(category, setting,
-            "Inside nameplate range, enemy players' names use the font and size below. Mobs keep Blizzard's normal font.")
-    end
+    Checkbox("Bigger enemy-player names",
+        "Inside nameplate range, enemy players' names use the font and size below. Mobs keep Blizzard's normal font.",
+        function() return db.enabled end,
+        function(v) db.enabled = v; Refresh() end)
 
-    do
-        local function GetOptions()
-            local c = Settings.CreateControlTextContainer()
-            for _, key in ipairs(FONT_ORDER) do c:Add(key, FONT_LABELS[key] or key) end
-            return c:GetData()
-        end
-        local setting = Settings.RegisterProxySetting(category, "NOTAMOB_FONT",
-            Settings.VarType.String, "Font", DEFAULTS.font,
-            function() return db.font end,
-            function(v) if FONTS[v] then db.font = v; Refresh() end end)
-        Settings.CreateDropdown(category, setting, GetOptions, "Typeface for enemy-player names.")
-    end
+    Dropdown("Font", "Typeface for enemy-player names.",
+        function()
+            local list = {}
+            for _, key in ipairs(FONT_ORDER) do
+                list[#list + 1] = { value = key, label = FONT_LABELS[key] or key }
+            end
+            return list
+        end,
+        function() return db.font end,
+        function(v) if FONTS[v] then db.font = v; Refresh() end end)
 
-    do
-        local setting = Settings.RegisterProxySetting(category, "NOTAMOB_SCALE",
-            Settings.VarType.Number, "Size", DEFAULTS.scale,
-            function() return db.scale end,
-            function(v)
-                db.scale = math.floor(v * 10 + 0.5) / 10
-                db.size = 0
-                Refresh()
-            end)
-        local options = Settings.CreateSliderOptions(1, 3, 0.1)
-        if MinimalSliderWithSteppersMixin and MinimalSliderWithSteppersMixin.Label then
-            options:SetLabelFormatter(MinimalSliderWithSteppersMixin.Label.Right,
-                function(v) return ("%.1fx"):format(v) end)
-        end
-        Settings.CreateSlider(category, setting, options,
-            "How much bigger than Blizzard's normal name size. 1.5x is the default.")
-    end
+    Slider("Size", "How much bigger than Blizzard's normal name size. 1.5x is the default.",
+        1, 3, 0.1, function(v) return ("%.1fx"):format(v) end,
+        function() return db.scale end,
+        function(v)
+            db.scale = math.floor(v * 10 + 0.5) / 10
+            db.size = 0
+            Refresh()
+        end)
 
-    do
-        local setting = Settings.RegisterProxySetting(category, "NOTAMOB_SHRINK_TO_FIT",
-            Settings.VarType.Boolean, "Shrink long names to fit", false,
-            function() return db.shrinkToFit end,
-            function(v) db.shrinkToFit = v; wipe(applied); Refresh() end)
-        Settings.CreateCheckbox(category, setting,
-            "Long names that don't fit at the bigger size get cut off with \"...\". Check this to shrink those names just enough to show in full (never smaller than Blizzard's normal size).")
-    end
+    Checkbox("Shrink long names to fit",
+        "Long names that don't fit at the bigger size get cut off with \"...\". Check this to shrink those names just enough to show in full (never smaller than Blizzard's normal size).",
+        function() return db.shrinkToFit end,
+        function(v) db.shrinkToFit = v; wipe(applied); Refresh() end)
 
-    do
-        local function GetOptions()
-            local c = Settings.CreateControlTextContainer()
-            c:Add("none", OUTLINE_LABELS.none, "No border around the letters.")
-            c:Add("outline", OUTLINE_LABELS.outline, "A thin dark border around each letter.")
-            c:Add("thick", OUTLINE_LABELS.thick, "A heavy dark border around each letter.")
-            return c:GetData()
-        end
-        local setting = Settings.RegisterProxySetting(category, "NOTAMOB_OUTLINE",
-            Settings.VarType.String, "Outline", DEFAULTS.outline,
-            function() return db.outline end,
-            function(v) if OUTLINES[v] then db.outline = v; Refresh() end end)
-        Settings.CreateDropdown(category, setting, GetOptions,
-            "A dark border drawn around each letter, so names stay readable over bright or busy backgrounds.")
-    end
+    Dropdown("Outline",
+        "A dark border drawn around each letter, so names stay readable over bright or busy backgrounds.",
+        function()
+            return {
+                { value = "none", label = OUTLINE_LABELS.none, tip = "No border around the letters." },
+                { value = "outline", label = OUTLINE_LABELS.outline, tip = "A thin dark border around each letter." },
+                { value = "thick", label = OUTLINE_LABELS.thick, tip = "A heavy dark border around each letter." },
+            }
+        end,
+        function() return db.outline end,
+        function(v) if OUTLINES[v] then db.outline = v; Refresh() end end)
 
     Header("Only when far away (beyond 28 yards)")
 
@@ -966,52 +1059,39 @@ local function BuildOptions()
           tip = "Checked: up close, enemy players keep Blizzard's normal outline; your outline is used only when they're far away. Unchecked: your outline is always used." },
     }
     for _, p in ipairs(FAR_PARTS) do
-        local setting = Settings.RegisterProxySetting(category, "NOTAMOB_FARONLY_" .. p.key:upper(),
-            Settings.VarType.Boolean, p.name, false,
+        Checkbox(p.name, p.tip,
             function() return db.farOnly[p.key] end,
             function(v) db.farOnly[p.key] = v; Refresh() end)
-        Settings.CreateCheckbox(category, setting, p.tip)
     end
 
     Header("Testing")
 
-    AddButton("Test on my target",
+    Button("Test on my target",
+        "Treat whatever you target as an enemy player, so you can check the font with only mobs around. Tab between mobs: only your current target should look big. Turns off on /reload.",
         function() return testMode and "Stop test" or "Start test" end,
-        function(btn)
-            ToggleTestMode()
-            btn:SetText(testMode and "Stop test" or "Start test")
-        end,
-        "Treat whatever you target as an enemy player, so you can check the font with only mobs around. Tab between mobs: only your current target should look big. Turns off on /reload.")
+        function() ToggleTestMode() end)
 
     Header("Nameplate range")
 
-    AddButton("Show plates farther away",
+    Button("Show plates farther away",
+        "Raise how far away nameplates (and the bigger player names) appear, for NPCs and players, to the game's maximum. This changes nameplateMaxDistance and nameplatePlayerMaxDistance; the game may cap the value. The number on the button is your current range (NPCs / players when they differ).",
         function() return "Max range (" .. RangeText() .. ")" end,
-        function(btn)
-            CmdRange("max")
-            btn:SetText("Max range (" .. RangeText() .. ")")
-        end,
-        "Raise how far away nameplates (and the bigger player names) appear, for NPCs and players, to the game's maximum. This changes nameplateMaxDistance and nameplatePlayerMaxDistance; the game may cap the value.",
-        "CVAR_UPDATE")
+        function() CmdRange("max") end)
 
-    AddButton("Undo range change",
+    Button("Undo range change",
+        "Put nameplate range back to what it was before NotAMob changed it. Does nothing if NotAMob hasn't changed it.",
         function() return "Restore previous" end,
-        function()
-            CmdRange("default")
-        end,
-        "Put nameplate range back to what it was before NotAMob changed it. Does nothing if NotAMob hasn't changed it.")
+        function() CmdRange("default") end)
 
     local function unlocked() return db.nineUnlocked == true end
     local nineRows = {
         Header("Nam Nine"),
-        AddButton("Screenshot key",
+        Button("Screenshot key", "A key that hides the UI and takes a screenshot, like the Nam Nine Cam button.",
             function() return KeyTextFor(NINE_ACTION) end,
             function(btn)
                 OpenKeyCapture(function() btn:SetText(KeyTextFor(NINE_ACTION)) end, NINE_ACTION)
-            end,
-            "A key that hides the UI and takes a screenshot, like the Nam Nine Cam button.",
-            "UPDATE_BINDINGS"),
-        AddButton("Clear screenshot key",
+            end),
+        Button("Clear screenshot key", "Remove the screenshot key.",
             function() return "Clear key" end,
             function()
                 if not GetBindingKey(NINE_ACTION) then
@@ -1019,14 +1099,43 @@ local function BuildOptions()
                 elseif SetKeyFor(NINE_ACTION, nil) then
                     Print("Screenshot key cleared.")
                 end
-            end,
-            "Remove the screenshot key."),
+            end),
     }
-    for _, init in pairs(nineRows) do
-        if init.AddShownPredicate then init:AddShownPredicate(unlocked) end
+    for _, row in ipairs(nineRows) do row.shownFunc = unlocked end
+
+    local function Layout()
+        local y = 0
+        for _, row in ipairs(rows) do
+            if not row.shownFunc or row.shownFunc() then
+                row:ClearAllPoints()
+                row:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -y)
+                row:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -y)
+                row:Show()
+                y = y + row:GetHeight()
+            else
+                row:Hide()
+            end
+        end
+        content:SetHeight(y + 10)
     end
 
+    local function RefreshAll()
+        Layout()
+        for _, refresh in ipairs(refreshers) do refresh() end
+    end
+
+    RefreshOptions = function()
+        if panel:IsVisible() then RefreshAll() end
+    end
+
+    panel:SetScript("OnShow", RefreshAll)
+    panel:RegisterEvent("UPDATE_BINDINGS")
+    panel:RegisterEvent("CVAR_UPDATE")
+    panel:SetScript("OnEvent", RefreshOptions)
+
+    local category = Settings.RegisterCanvasLayoutCategory(panel, "NotAMob")
     Settings.RegisterAddOnCategory(category)
+    optionsCategory = category
 end
 
 local function OpenOptions()
